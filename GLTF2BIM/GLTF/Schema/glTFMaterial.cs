@@ -42,7 +42,8 @@ namespace GLTF2BIM.GLTF.Schema {
     /// </summary>
     // https://github.com/KhronosGroup/glTF/tree/master/specification/2.0#materials
     [Serializable]
-    public sealed class glTFPBRMetallicRoughness {
+    public sealed class glTFPBRMetallicRoughness
+    {
         [JsonProperty("baseColorFactor")]
         public float[] BaseColorFactor { get; set; }
 
@@ -51,5 +52,19 @@ namespace GLTF2BIM.GLTF.Schema {
 
         [JsonProperty("roughnessFactor")]
         public float RoughnessFactor { get; set; }
+
+        public override int GetHashCode()
+        {
+            return base.GetHashCode();
+        }
+
+        public override bool Equals(object obj)
+        {
+            if (obj is glTFPBRMetallicRoughness other)
+                return BaseColorFactor[0] == other.BaseColorFactor[0] &&
+                       BaseColorFactor[1] == other.BaseColorFactor[1] &&
+                       BaseColorFactor[2] == other.BaseColorFactor[2];
+            return false;
+        }
     }
 }

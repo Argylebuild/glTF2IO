@@ -6,7 +6,7 @@ using System.Text;
 using GLTF2BIM.GLTF.Schema;
 
 namespace GLTF2BIM.GLTF.BufferSegments.BaseTypes {
-    abstract class BufferSegment {
+    public abstract class BufferSegment {
         public abstract glTFAccessorType Type { get; }
         public abstract glTFAccessorComponentType DataType { get; }
         public abstract glTFBufferViewTargets Target { get; }

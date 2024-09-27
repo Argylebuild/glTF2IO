@@ -10,12 +10,16 @@ using GLTF2BIM.GLTF.BufferSegments;
 using GLTF2BIM.GLTF.Package;
 using GLTF2BIM.GLTF.Package.BaseTypes;
 using GLTF2BIM.GLTF.BufferSegments.BaseTypes;
+using System.Text;
 
 namespace GLTF2BIM.GLTF {
     public sealed partial class GLTFBuilder {
+
         public GLTFBuilder(string name) {
             _name = name;
             _gltf = new glTF();
+            meshesInstancing = new Dictionary<string, int>();
+            materialsInstancing = new Dictionary<string, uint>();
         }
 
         /// <summary>
@@ -222,6 +226,7 @@ namespace GLTF2BIM.GLTF {
 
         public uint AppendNode(string name, float[] matrix,
                                glTFExtension[] exts, glTFExtras extras) {
+
             // create new node and set base properties
             var node = new glTFNode() {
                 Name = name ?? "undefined",
@@ -292,17 +297,12 @@ namespace GLTF2BIM.GLTF {
         public void CloseNode() {
             if (PeekNode() is glTFNode currentNode) {
                 if (_primQueue.Count > 0) {
-                    // combine all collected primitives into a mesh
-                    var newMesh = new glTFMesh {
-                        Primitives = _primQueue.ToList()
-                    };
-                    // check to see if there is a matching mesh
-                    var meshIdx = _gltf.Meshes.IndexOf(newMesh);
-                    if (meshIdx < 0) {
-                        // otherwise create a new mesh
-                        _gltf.Meshes.Add(newMesh);
-                        meshIdx = _gltf.Meshes.Count - 1;
-                    }
+
+                    // searching for an already existent mesh
+                    int meshIdx = SearchMesh(_primQueue.ToList());
+
+                    // if it aready exists reuse it, otherwise, create a new mesh
+                    meshIdx = (meshIdx >= 0) ? meshIdx : CreateMesh();
 
                     // set the mesh on the active node
                     currentNode.Mesh = (uint)meshIdx;
@@ -315,6 +315,87 @@ namespace GLTF2BIM.GLTF {
                 _primQueue.Clear();
             }
         }
+
+        private int SearchMesh(List<glTFMeshPrimitive> primitives)
+        {
+            var key = GetPrimitivesKey(primitives);
+
+            int meshIdx = default;
+
+            if (meshesInstancing.TryGetValue(key, out meshIdx))
+                return meshIdx;
+
+            return -1;
+        }
+        private uint? SearchMaterial(string name, float[] color)
+        {
+            var key = GetMaterialKey(name, color);
+
+            uint materialIdx = default;
+
+            if (materialsInstancing.TryGetValue(key, out materialIdx))
+                return materialIdx;
+
+            return null; 
+        }
+
+        private int CreateMesh()
+        {
+            var primitives = _primQueue.ToList();
+
+            var mesh = new glTFMesh
+            {
+                Primitives = primitives
+            };
+
+            // create a new mesh
+            _gltf.Meshes.Add(mesh);
+            var meshIdx = _gltf.Meshes.Count - 1;
+            meshesInstancing.Add(GetPrimitivesKey(primitives), meshIdx);
+
+            return meshIdx;
+        }
+        private uint CreateMaterial(string name, float[] color, glTFExtension[] exts, glTFExtras extras)
+        {
+            // it is a new material, proceed to add it!
+            var material = new glTFMaterial()
+            {
+                Name = name,
+                PBRMetallicRoughness = new glTFPBRMetallicRoughness()
+                {
+                    BaseColorFactor = color,
+                    MetallicFactor = 0f,
+                    RoughnessFactor = 1f,
+                },
+                Extensions = exts?.ToDictionary(x => x.Name, x => x),
+                Extras = extras
+            };
+
+            _gltf.Materials.Add(material);
+            var materialIdx = (uint)_gltf.Materials.Count - 1;
+            materialsInstancing.Add(GetMaterialKey(name, color), materialIdx);
+
+            return materialIdx;
+        }
+
+        public string GetPrimitivesKey(List<glTFMeshPrimitive> primitives)
+        {
+            StringBuilder keyBuilder = new StringBuilder();
+
+            foreach (var primitive in primitives)
+            {
+                keyBuilder.Append($"{primitive.Attributes.Normal}:{primitive.Attributes.Position}:{primitive.Indices}:{primitive.Material}:{primitive.Mode}:");
+            }
+
+            return keyBuilder.ToString();
+        }
+
+        public string GetMaterialKey(string name, float[] color)
+        {
+            return $":{name}:{color[0]}:{color[1]}:{color[2]}";
+        }
+
+
         #endregion
 
         #region Node Mesh
@@ -393,21 +474,15 @@ namespace GLTF2BIM.GLTF {
                 if (_primQueue.Count > primitiveIndex) {
                     var prim = _primQueue.ElementAt((int)primitiveIndex);
 
-                    var material = new glTFMaterial() {
-                        Name = name,
-                        PBRMetallicRoughness = new glTFPBRMetallicRoughness() {
-                            BaseColorFactor = color,
-                            MetallicFactor = 0f,
-                            RoughnessFactor = 1f,
-                        },
-                        Extensions = exts?.ToDictionary(x => x.Name, x => x),
-                        Extras = extras
-                    };
-
                     if (_gltf.Materials is null)
                         _gltf.Materials = new List<glTFMaterial>();
-                    _gltf.Materials.Add(material);
-                    prim.Material = (uint)_gltf.Materials.Count - 1;
+
+                    // searching for an already existent material
+                    var materialIdx = SearchMaterial(name, color);
+
+                    // if it aready exists reuse it, otherwise, create a new material
+                    prim.Material = (materialIdx == null) ? CreateMaterial(name, color, exts, extras) : materialIdx;
+
                     return prim.Material.Value;
                 }
                 else
@@ -416,6 +491,7 @@ namespace GLTF2BIM.GLTF {
             else
                 throw new Exception(StringLib.NoParentNode);
         }
+
 
         public int FindMaterial(Func<glTFMaterial, bool> filter) {
             if (_gltf.Materials != null && _gltf.Materials.Count > 0) {
